@@ -1,7 +1,7 @@
 package br.gov.bndes.pratikai
 
 import org.apache.solr.client.solrj.SolrServerException
-import org.apache.solr.client.solrj.impl.CloudSolrClient
+import org.apache.solr.client.solrj.impl.HttpSolrClient
 import org.apache.solr.client.solrj.impl.XMLResponseParser
 import org.apache.solr.client.solrj.response.UpdateResponse
 import org.apache.solr.common.SolrInputDocument
@@ -10,19 +10,19 @@ import org.apache.tika.parser.AutoDetectParser
 import org.apache.tika.parser.ParseContext
 import org.apache.tika.sax.BodyContentHandler
 import org.xml.sax.ContentHandler
+import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
 import java.io.InputStream
-import java.lang.Exception
-import java.sql.*
+import java.nio.file.Files
+import java.nio.file.attribute.AclFileAttributeView
 import java.util.*
 
 
-fun main(args: Array<String>) {
+fun main() {
     try {
-        val idxer = SqlTikaExample("http://localhost:8983/solr")
-        idxer.doTikaDocuments(java.io.File("/Users/Erick/testdocs"))
-        idxer.doSqlDocuments()
+        val idxer = TikaIndexer("http://localhost:8983/solr")
+        idxer.doTikaDocuments(File("/some/docs"))
         idxer.endIndexing()
     } catch (e: Exception) {
         e.printStackTrace()
@@ -32,39 +32,24 @@ fun main(args: Array<String>) {
 // Just to show all the metadata that's available.
 fun dumpMetadata(fileName: String, metadata: Metadata) {
     println("Dumping metadata for file: $fileName")
-    for (name in metadata.names()) {
-        println(name + ":" + metadata.get(name))
+    metadata.names().forEach {
+        println(it + ":" + metadata.get(it))
     }
-    println("nn")
+    println("\n\n")
 }
 
-/* Example class showing the skeleton of using Tika and
-   Sql on the client to index documents from
-   both structured documents and a SQL database.
-
-   NOTE: The SQL example and the Tika example are entirely orthogonal.
-   Both are included here to make a
-   more interesting example, but you can omit either of them.
-
- */
-class SqlTikaExample(url: String) {
-    private val client: CloudSolrClient
+class TikaIndexer(url: String) {
+    private val client: HttpSolrClient = HttpSolrClient.Builder()
+            .withConnectionTimeout(5000)
+            .withSocketTimeout(10000)
+            .build()
     private val start: Long = System.currentTimeMillis()
     private val autoParser: AutoDetectParser
     private var totalTika = 0
     private var totalSql = 0
-    private val zkEnsemble = "http://localhost:2181"
     private val docList: MutableCollection<SolrInputDocument> = ArrayList()
 
     init {
-        // Create a SolrCloud-aware client to send docs to Solr
-        // Use something like HttpSolrClient for stand-alone
-        // client = CloudSolrClient.Builder().withZkHost(zkEnsemble).build()
-        // Solr 8 uses a builder pattern here.
-        client =  CloudSolrClient.Builder(Collections.singletonList(zkEnsemble), Optional.empty())
-                .withConnectionTimeout(5000)
-                .withSocketTimeout(10000)
-                .build();
         // binary parser is used by default for responses
         client.parser = XMLResponseParser()
         // One of the ways Tika can be used to attempt to parse arbitrary files.
@@ -92,13 +77,21 @@ class SqlTikaExample(url: String) {
      */
     // Recursively traverse the filesystem, parsing everything found.
     @Throws(IOException::class, SolrServerException::class)
-    fun doTikaDocuments(root: java.io.File) {
+    fun doTikaDocuments(root: File) {
         // Simple loop for recursively indexing all the files
         // in the root directory passed in.
         root.listFiles().forEach { file ->
             if (file.isDirectory) {
                 doTikaDocuments(file)
                 return@forEach
+            }
+            // Show ACL of the file
+            val aclFileAttributes: AclFileAttributeView = Files.getFileAttributeView(
+                    file.toPath(), AclFileAttributeView::class.java)
+
+            aclFileAttributes.acl.forEach { aclEntry ->
+                println(aclEntry.principal().toString() + ":")
+                println(aclEntry.permissions().toString() + "\n")
             }
             // Get ready to parse the file.
             val textHandler: ContentHandler = BodyContentHandler()
@@ -147,47 +140,6 @@ class SqlTikaExample(url: String) {
                 }
                 docList.clear()
             }
-        }
-    }
-
-    /**
-     * SQL processing here
-     */
-    @Throws(SQLException::class)
-    fun doSqlDocuments() {
-        var con: Connection? = null
-        try {
-            Class.forName("com.mysql.jdbc.Driver").newInstance()
-            println("Driver Loaded......")
-            con = DriverManager.getConnection("jdbc:mysql://192.168.1.103:3306/test?user=testuser&password=test123")
-            val st: Statement = con.createStatement()
-            val rs: ResultSet = st.executeQuery("select id,title,text from test")
-            while (rs.next()) {
-                // DO NOT move this outside the while loop
-                val doc = SolrInputDocument()
-                val id: String = rs.getString("id")
-                val title: String = rs.getString("title")
-                val text: String = rs.getString("text")
-                doc.addField("id", id)
-                doc.addField("title", title)
-                doc.addField("text", text)
-                docList.add(doc)
-                ++totalSql
-                // Completely arbitrary, just batch up more than one
-                // document for throughput!
-                if (docList.size > 1000) {
-                    // Commit within 5 minutes.
-                    val resp: UpdateResponse = client.add(docList, 300000)
-                    if (resp.status != 0) {
-                        println("Some horrible error has occurred, status is: ${resp.status}")
-                    }
-                    docList.clear()
-                }
-            }
-        } catch (ex: Exception) {
-            ex.printStackTrace()
-        } finally {
-            con?.close()
         }
     }
 }
