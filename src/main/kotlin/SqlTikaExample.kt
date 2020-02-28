@@ -23,23 +23,24 @@ import java.sql.SQLException
  */
 class SqlTikaExample private constructor(url: String) {
     private val client: CloudSolrClient
-    private val start: Long = java.lang.System.currentTimeMillis()
+    //private val start: Long = java.lang.System.currentTimeMillis()
     private val autoParser: AutoDetectParser
     private var totalTika = 0
     private var totalSql = 0
     private val zkEnsemble = "http://localhost:2181"
     private val docList: MutableCollection<SolrInputDocument> = java.util.ArrayList()
-// Just a convenient place to wrap things up.
+    // Just a convenient place to wrap things up.
     @Throws(IOException::class, SolrServerException::class)
     private fun endIndexing() {
-        if (docList.isNotEmpty()) { // Are there any documents left over?
+        // Are there any documents left over?
+        if (docList.isNotEmpty()) {
             client.add(docList, 300000) // Commit within 5 minutes
         }
         client.commit()
-// Only needs to be done at the end,
-// commitWithin should do the rest.
-// Could even be omitted
-// assuming commitWithin was specified.
+        // Only needs to be done at the end,
+        // commitWithin should do the rest.
+        // Could even be omitted
+        // assuming commitWithin was specified.
         val endTime: Long = java.lang.System.currentTimeMillis()
         log("Total Time Taken: " + (endTime - start) +
                 " milliseconds to index " + totalSql +
@@ -47,47 +48,49 @@ class SqlTikaExample private constructor(url: String) {
     }
 
     /**
-     * ***************************Tika processing here
+     * Tika processing here
      */
-// Recursively traverse the filesystem, parsing everything found.
+    // Recursively traverse the filesystem, parsing everything found.
     @Throws(IOException::class, SolrServerException::class)
-    private fun doTikaDocuments(root: java.io.File) { // Simple loop for recursively indexing all the files
-// in the root directory passed in.
+    private fun doTikaDocuments(root: java.io.File) {
+        // Simple loop for recursively indexing all the files
+        // in the root directory passed in.
         for (file in root.listFiles()) {
             if (file.isDirectory) {
                 doTikaDocuments(file)
                 continue
             }
-// Get ready to parse the file.
+            // Get ready to parse the file.
             val textHandler: org.xml.sax.ContentHandler = BodyContentHandler()
             val metadata: org.apache.tika.metadata.Metadata = org.apache.tika.metadata.Metadata()
             val context: org.apache.tika.parser.ParseContext = org.apache.tika.parser.ParseContext()
-// Tim Allison noted the following, thanks Tim!
-// If you want Tika to parse embedded files (attachments within your .doc or any other embedded
-// files), you need to send in the autodetectparser in the parsecontext:
-// context.set(Parser.class, autoParser);
+            // Tim Allison noted the following, thanks Tim!
+            // If you want Tika to parse embedded files (attachments within your .doc or any other embedded
+            // files), you need to send in the autodetectparser in the parsecontext:
+            // context.set(Parser.class, autoParser);
             val input: java.io.InputStream = FileInputStream(file)
-// Try parsing the file. Note we haven't checked at all to
-// see whether this file is a good candidate.
+            // Try parsing the file. Note we haven't checked at all to
+            // see whether this file is a good candidate.
             try {
                 autoParser.parse(input, textHandler, metadata, context)
-            } catch (e: java.lang.Exception) { // Needs better logging of what went wrong in order to
-// track down "bad" documents.
+            } catch (e: java.lang.Exception) {
+                // Needs better logging of what went wrong in order to
+                // track down "bad" documents.
                 log(String.format("File %s failed", file.canonicalPath))
                 e.printStackTrace()
                 continue
             }
-// Just to show how much meta-data and what form it's in.
+            // Just to show how much meta-data and what form it's in.
             dumpMetadata(file.canonicalPath, metadata)
-// Index just a couple of the meta-data fields.
+            // Index just a couple of the meta-data fields.
             val doc = SolrInputDocument()
             doc.addField("id", file.canonicalPath)
-// Crude way to get known meta-data fields.
-// Also possible to write a simple loop to examine all the
-// metadata returned and selectively index it and/or
-// just get a list of them.
-// One can also use the Lucidworks field mapping to
-// accomplish much the same thing.
+            // Crude way to get known meta-data fields.
+            // Also possible to write a simple loop to examine all the
+            // metadata returned and selectively index it and/or
+            // just get a list of them.
+            // One can also use the Lucidworks field mapping to
+            // accomplish much the same thing.
             val author: String = metadata.get("Author")
             if (author != null) {
                 doc.addField("author", author)
@@ -95,9 +98,10 @@ class SqlTikaExample private constructor(url: String) {
             doc.addField("text", textHandler.toString())
             docList.add(doc)
             ++totalTika
-// Completely arbitrary, just batch up more than one document
-// for throughput!
-            if (docList.size >= 1000) { // Commit within 5 minutes.
+            // Completely arbitrary, just batch up more than one document
+            // for throughput!
+            if (docList.size >= 1000) {
+                // Commit within 5 minutes.
                 val resp: org.apache.solr.client.solrj.response.UpdateResponse = client.add(docList, 300000)
                 if (resp.status != 0) {
                     log("Some horrible error has occurred, status is: " +
@@ -108,7 +112,7 @@ class SqlTikaExample private constructor(url: String) {
         }
     }
 
-// Just to show all the metadata that's available.
+    // Just to show all the metadata that's available.
     private fun dumpMetadata(fileName: String, metadata: org.apache.tika.metadata.Metadata) {
         log("Dumping metadata for file: $fileName")
         for (name in metadata.names()) {
@@ -118,7 +122,7 @@ class SqlTikaExample private constructor(url: String) {
     }
 
     /**
-     * ***************************SQL processing here
+     * SQL processing here
      */
     @Throws(SQLException::class)
     private fun doSqlDocuments() {
@@ -140,9 +144,10 @@ class SqlTikaExample private constructor(url: String) {
                 doc.addField("text", text)
                 docList.add(doc)
                 ++totalSql
-// Completely arbitrary, just batch up more than one
-// document for throughput!
-                if (docList.size > 1000) { // Commit within 5 minutes.
+                // Completely arbitrary, just batch up more than one
+                // document for throughput!
+                if (docList.size > 1000) {
+                    // Commit within 5 minutes.
                     val resp: org.apache.solr.client.solrj.response.UpdateResponse = client.add(docList, 300000)
                     if (resp.status != 0) {
                         log("Some horrible error has occurred, status is: " +
@@ -171,26 +176,26 @@ class SqlTikaExample private constructor(url: String) {
             }
         }
 
-// I hate writing System.out.println() everyplace,
-// besides this gives a central place to convert to true logging
-// in a production system.
+        // I hate writing System.out.println() everyplace,
+        // besides this gives a central place to convert to true logging
+        // in a production system.
         private fun log(msg: String) {
             println(msg)
         }
     }
 
     init {
-// Create a SolrCloud-aware client to send docs to Solr
-// Use something like HttpSolrClient for stand-alone
+        // Create a SolrCloud-aware client to send docs to Solr
+        // Use something like HttpSolrClient for stand-alone
         client = CloudSolrClient.Builder().withZkHost(zkEnsemble).build()
-// Solr 8 uses a builder pattern here.
-//     client = new CloudSolrClient.Builder(Collections.singletonList(zkEnsemble), Optional.empty())
-//    .withConnectionTimeout(5000)
-//    .withSocketTimeout(10000)
-//    .build();
-// binary parser is used by default for responses
+        // Solr 8 uses a builder pattern here.
+        //     client = new CloudSolrClient.Builder(Collections.singletonList(zkEnsemble), Optional.empty())
+        //    .withConnectionTimeout(5000)
+        //    .withSocketTimeout(10000)
+        //    .build();
+        // binary parser is used by default for responses
         client.parser = XMLResponseParser()
-// One of the ways Tika can be used to attempt to parse arbitrary files.
+        // One of the ways Tika can be used to attempt to parse arbitrary files.
         autoParser = AutoDetectParser()
     }
 }
